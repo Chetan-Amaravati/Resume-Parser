@@ -1,4 +1,3 @@
-
 import re
 import json
 from pathlib import Path
@@ -129,8 +128,8 @@ def extract_projects(text: str) -> Tuple[List[str], float]:
     projects = re.findall(r"(?m)^\s*[-*•]\s*(.+)$", text)
     if projects:
         return projects[:10], 0.7
-    # fallback: lines under 'projects'
-    m = re.search(r"(?is)projects\s*:?\s*(.+?)(\n[A-Z][A-Za-z ]{2,}\n|$)", text)
+    # Enhanced fallback: Capture entire 'projects' section
+    m = re.search(r"(?is)projects\s*:?\s*(.+?)(?=\n[A-Z][A-Za-z ]{2,}\n|\Z)", text)
     if m:
         lines = [l.strip() for l in m.group(1).splitlines() if l.strip()]
         return lines[:10], 0.55
@@ -182,6 +181,8 @@ def parse_file(path: Path, skills_path: Path) -> Dict:
         "experience": c_exp
     })
 
+    projects_text = " ".join(projects)  # Combined text for scoring/inference
+
     return {
         "file": path.name,
         "name": name,
@@ -189,6 +190,7 @@ def parse_file(path: Path, skills_path: Path) -> Dict:
         "education": education,
         "skills": skills,
         "projects": projects,
+        "projects_text": projects_text,
         "experience": experience,
         "confidence": conf,
         "language": "Kannada" if is_kannada(text) else "English",
@@ -205,4 +207,4 @@ def parse_folder(folder: Path, skills_path: Path) -> pd.DataFrame:
             records.append(rec)
         except Exception as e:
             records.append({"file": p.name, "error": str(e)})
-    return pd.DataFrame(records)
+    return pd.DataFrame(records)  # Fixed line
