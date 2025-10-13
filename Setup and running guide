@@ -1,0 +1,135 @@
+SETUP_AND_RUN.txt
+
+Prerequisites
+
+Python 3.10+ installed and on PATH. [attached_file:f135e243-69ee-4e1f-a679-7822768fea3a]
+
+MongoDB running locally at mongodb://localhost:27017. Start mongod before running apps. [attached_file:116524f4-401a-49ca-bab8-6df77bcc5d1a]
+
+Ensure skills.json is present in the project root. [attached_file:87031670-dad6-499f-93ce-ad2f4b0a12b9]
+
+Create and activate virtual environment
+Windows (PowerShell):
+python -m venv .venv
+..venv\Scripts\Activate.ps1 [attached_file:f135e243-69ee-4e1f-a679-7822768fea3a]
+
+macOS/Linux (bash):
+python3 -m venv .venv
+source .venv/bin/activate [attached_file:f135e243-69ee-4e1f-a679-7822768fea3a]
+
+Install dependencies
+
+Upgrade pip:
+python -m pip install --upgrade pip [attached_file:f135e243-69ee-4e1f-a679-7822768fea3a]
+
+Install from requirements.txt:
+pip install -r requirements.txt [attached_file:f135e243-69ee-4e1f-a679-7822768fea3a]
+
+Install spaCy English model (if not installed by requirements):
+python -m spacy download en_core_web_sm [attached_file:3254153b-1555-45bb-ba1b-b4b0a1def58f]
+
+Prepare directories and data
+
+uploads directory will be auto-created by the apps on first run; no manual step required. [attached_file:4b7f681b-cdef-48d8-927c-f9a4d2fad7ba]
+
+Optional dataset directory if planning to use the Streamlit “Use Included Dataset” option:
+mkdir -p dataset [attached_file:91294cd3-4aac-46e5-8ef3-98c2159e2a8d]
+
+Start MongoDB
+
+Ensure the database service is running locally:
+mongod [attached_file:116524f4-401a-49ca-bab8-6df77bcc5d1a]
+
+Run Streamlit app (UI)
+
+From project root:
+streamlit run app.py [attached_file:91294cd3-4aac-46e5-8ef3-98c2159e2a8d]
+
+In the app:
+
+Choose a data source (Upload New Files, Use Included Dataset, or Load from MongoDB). [attached_file:91294cd3-4aac-46e5-8ef3-98c2159e2a8d]
+
+Click “Parse Resumes” to extract structured fields (name, email, phone, LinkedIn, skills, education, CGPA, projects, experience, language, raw text). [attached_file:be735727-7697-44fa-bfce-13e5ab831a20]
+
+Provide a Job Description in the sidebar and click “Score Skill Gap” to compute matched/missing skills, coverage score, and inferred domains. [attached_file:3254153b-1555-45bb-ba1b-b4b0a1def58f]
+
+Optionally enable Auto-save to MongoDB to persist parsed and scored results. [attached_file:116524f4-401a-49ca-bab8-6df77bcc5d1a]
+
+Export results to Excel using the download button. [attached_file:91294cd3-4aac-46e5-8ef3-98c2159e2a8d]
+
+Run FastAPI backend (API)
+
+Start development server:
+uvicorn backend:app --host 0.0.0.0 --port 8000 --reload [attached_file:4b7f681b-cdef-48d8-927c-f9a4d2fad7ba]
+
+Key endpoints:
+
+POST /upload
+Use multipart form-data with field “file” (pdf/docx/txt). Optional query param “jobdomainquery” to enrich domain keywords. [attached_file:4b7f681b-cdef-48d8-927c-f9a4d2fad7ba]
+
+GET /resumes
+Lists stored resumes (ids and basic fields). [attached_file:4b7f681b-cdef-48d8-927c-f9a4d2fad7ba]
+
+GET /resume/{resume_id}
+Fetch a document by its ObjectId. [attached_file:4b7f681b-cdef-48d8-927c-f9a4d2fad7ba]
+
+POST /update_keywords
+Upsert cached domain keywords for a given query string. [attached_file:4b7f681b-cdef-48d8-927c-f9a4d2fad7ba]
+
+Typical command sequence (fresh clone)
+Windows:
+python -m venv .venv
+..venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python -m spacy download en_core_web_sm
+mongod
+streamlit run app.py
+
+In a second terminal (same venv) to run API:
+uvicorn backend:app --host 0.0.0.0 --port 8000 --reload [attached_file:f135e243-69ee-4e1f-a679-7822768fea3a][attached_file:91294cd3-4aac-46e5-8ef3-98c2159e2a8d][attached_file:4b7f681b-cdef-48d8-927c-f9a4d2fad7ba]
+
+macOS/Linux:
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python -m spacy download en_core_web_sm
+mongod
+streamlit run app.py
+
+In a second terminal (same venv) to run API:
+uvicorn backend:app --host 0.0.0.0 --port 8000 --reload [attached_file:f135e243-69ee-4e1f-a679-7822768fea3a][attached_file:91294cd3-4aac-46e5-8ef3-98c2159e2a8d][attached_file:4b7f681b-cdef-48d8-927c-f9a4d2fad7ba]
+
+Environment variables (optional)
+
+Defaults are in code for local MongoDB; no .env required. If customizing, set:
+MONGODB_URI=mongodb://localhost:27017
+MONGODB_DB=resumedb [attached_file:116524f4-401a-49ca-bab8-6df77bcc5d1a]
+
+Notes and troubleshooting
+
+If spaCy model error appears, re-run:
+python -m spacy download en_core_web_sm [attached_file:3254153b-1555-45bb-ba1b-b4b0a1def58f]
+
+If MongoDB connection fails, ensure mongod is active and listening on localhost:27017. [attached_file:116524f4-401a-49ca-bab8-6df77bcc5d1a]
+
+Supported file types for parsing: .pdf, .docx, .txt. [attached_file:be735727-7697-44fa-bfce-13e5ab831a20]
+
+Streamlit disables file watcher inside the app to avoid rare torch path issues. No extra action needed. [attached_file:91294cd3-4aac-46e5-8ef3-98c2159e2a8d]
+
+What each module does
+
+app.py: Streamlit UI for bulk parsing, scoring, summaries, MongoDB save/load, Excel export. [attached_file:91294cd3-4aac-46e5-8ef3-98c2159e2a8d]
+
+backend.py: FastAPI app with endpoints for upload/list/fetch and domain keyword caching. [attached_file:4b7f681b-cdef-48d8-927c-f9a4d2fad7ba]
+
+parser.py: Loaders for PDF/DOCX/TXT and field extraction (name, contacts, skills, education, CGPA, projects, experience, language, raw text). [attached_file:be735727-7697-44fa-bfce-13e5ab831a20]
+
+scoring.py: JD normalization, coverage score, matched/missing skills, domain inference. [attached_file:3254153b-1555-45bb-ba1b-b4b0a1def58f]
+
+db_handler.py: MongoDB connection and CRUD utilities for resumes and scoring history. [attached_file:116524f4-401a-49ca-bab8-6df77bcc5d1a]
+
+skills.json: Skills vocabulary used by extraction routines. [attached_file:87031670-dad6-499f-93ce-ad2f4b0a12b9]
+
+End of SETUP_AND_RUN.txt. [attached_file:f135e243-69ee-4e1f-a679-7822768fea3a]
