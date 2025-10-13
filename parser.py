@@ -9,7 +9,8 @@ import fitz  # PyMuPDF
 from docx import Document
 
 SECTION_HEADERS_EN = [
-    "education","experience","work experience","projects","skills","certifications","summary","objective","contact","achievements"
+    "education", "experience", "work experience", "projects", "skills", "certifications",
+    "summary", "objective", "contact", "achievements"
 ]
 
 # Minimal Kannada header variants (multi-language support)
@@ -37,7 +38,7 @@ def load_text(file_path: Path) -> str:
         return file_path.read_text(encoding="utf-8", errors="ignore")
 
 def clean_text(text: str) -> str:
-    text = text.replace("\x00"," ")
+    text = text.replace("\x00", " ")
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\r", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
@@ -124,6 +125,37 @@ def extract_education(text: str) -> Tuple[str, float]:
         return m.group(1).strip(), 0.6
     return "", 0.0
 
+def extract_cgpa(text: str) -> Tuple[str, float]:
+    """Extract CGPA or GPA from the resume text with debug logging."""
+    # Enhanced regex for various CGPA formats
+    cgpa_pattern = r"(?:CGPA|GPA|Grade Point Average|Grade|Score)[\s:]*(\d\.\d{1,2}(?:/\d{1,2}(?:\.\d)?)?|\d\.\d{1,2}\s*(?:out of|of)\s*\d{1,2}(?:\.\d)?)"
+    # First, try to find CGPA in the education section
+    education_section = re.search(r"(?is)education\s*:?\s*(.+?)(\n[A-Z][A-Za-z ]{2,}\n|$)", text)
+    if education_section:
+        edu_text = education_section.group(1)
+        print(f"Debug: Education section text: {edu_text}")
+        cgpa_match = re.search(cgpa_pattern, edu_text, re.IGNORECASE)
+        if cgpa_match:
+            value = cgpa_match.group(1).split("/")[0].split("out of")[0].split("of")[0].strip()
+            print(f"Debug: CGPA match in education: {value}")
+            return value, 0.9
+    # Fallback: Search entire text for CGPA
+    cgpa_match = re.search(cgpa_pattern, text, re.IGNORECASE)
+    if cgpa_match:
+        value = cgpa_match.group(1).split("/")[0].split("out of")[0].split("of")[0].strip()
+        print(f"Debug: CGPA match in full text: {value}")
+        return value, 0.8
+    # Fallback: Look for standalone decimal in education section
+    if education_section:
+        edu_text = education_section.group(1)
+        standalone_cgpa = re.search(r"\b(\d\.\d{1,2})\b", edu_text)
+        if standalone_cgpa:
+            value = standalone_cgpa.group(1)
+            print(f"Debug: Standalone CGPA in education: {value}")
+            return value, 0.7
+    print(f"Debug: No CGPA found in {text[:100]}...")
+    return "", 0.0
+
 def extract_projects(text: str) -> Tuple[List[str], float]:
     projects = re.findall(r"(?m)^\s*[-*•]\s*(.+)$", text)
     if projects:
@@ -169,6 +201,7 @@ def parse_file(path: Path, skills_path: Path) -> Dict:
     contacts, c_contact = extract_contacts(text)
     skills, c_skills = extract_skills(text, skills_list)
     education, c_edu = extract_education(text)
+    cgpa, c_cgpa = extract_cgpa(text)
     projects, c_proj = extract_projects(text)
     experience, c_exp = extract_experience(text)
 
@@ -177,6 +210,7 @@ def parse_file(path: Path, skills_path: Path) -> Dict:
         "contact": c_contact,
         "skills": c_skills,
         "education": c_edu,
+        "cgpa": c_cgpa,
         "projects": c_proj,
         "experience": c_exp
     })
@@ -189,6 +223,7 @@ def parse_file(path: Path, skills_path: Path) -> Dict:
         "contacts": contacts,
         "education": education,
         "skills": skills,
+        "cgpa": cgpa,
         "projects": projects,
         "projects_text": projects_text,
         "experience": experience,
@@ -200,11 +235,11 @@ def parse_file(path: Path, skills_path: Path) -> Dict:
 def parse_folder(folder: Path, skills_path: Path) -> pd.DataFrame:
     records = []
     for p in folder.glob("*"):
-        if p.suffix.lower() not in (".pdf",".docx",".txt"):
+        if p.suffix.lower() not in (".pdf", ".docx", ".txt"):
             continue
         try:
             rec = parse_file(p, skills_path)
             records.append(rec)
         except Exception as e:
             records.append({"file": p.name, "error": str(e)})
-    return pd.DataFrame(records)  # Fixed line
+    return pd.DataFrame(records)

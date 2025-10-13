@@ -1,4 +1,3 @@
-# app.py
 import os
 os.environ["STREAMLIT_SERVER_ENABLE_FILE_WATCHER"] = "false"  # Disables file watching to avoid Torch conflicts
 try:
@@ -13,6 +12,7 @@ from pathlib import Path
 from parser import parse_folder
 from scoring import score_dataframe, summarize
 from db_handler import ResumeDB
+import io
 
 import json, ast, shutil
 from typing import Any, Dict
@@ -98,6 +98,10 @@ with st.sidebar:
 # ------------------- SESSION STATE -------------------
 if "df" not in st.session_state:
     st.session_state["df"] = pd.DataFrame()
+if "show_full_summary" not in st.session_state:
+    st.session_state["show_full_summary"] = False
+if "scored_df" not in st.session_state:
+    st.session_state["scored_df"] = pd.DataFrame()
 
 # ------------------- UTILITIES -------------------
 def save_uploads(files) -> Path:
@@ -136,7 +140,7 @@ def _format_contacts(d: Dict[str, Any]) -> str:
             parts.append(f"{label}: {v}")
     if not parts:
         parts = [f"{k}: {v}" for k, v in list(d.items())[:6]]
-    return " | ".join(parts)
+    return " | ".join(parts) if parts else "-"
 
 def _format_experience_item(item: Any) -> str:
     if isinstance(item, dict):
@@ -188,36 +192,41 @@ def _format_domains(d: Dict) -> str:
     if isinstance(d, dict):
         proj_info = next(iter(d.values())) if d else {"domains": [], "confirmed": False, "confidence": 0.0}
         domains = ", ".join(proj_info["domains"]) if proj_info["domains"] else "-"
-        conf_str = f" (Conf: {proj_info['confidence']}, {'✓ Confirmed' if proj_info['confirmed'] else '❌ Unconfirmed'})"
-        return f"{domains}{conf_str}"
+        return domains
     return str(d)
 
+def _format_cgpa(value: Any) -> str:
+    """Format CGPA to show only the value"""
+    if value is None or value == "":
+        return "-"
+    return str(value).replace("CGPA", "").replace("GPA", "").replace("UK", "").strip()
+
 def prettify_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Return a copy with nested objects rendered into readable text"""
+    """Return a copy with nested objects rendered into readable text, keeping only specified columns"""
     if df.empty: return df
     out = df.copy()
 
+    # Keep only the specified columns if they exist in the DataFrame
+    desired_columns = ["name", "contacts", "projects", "heading", "skills", "cgpa"]
+    available_columns = [col for col in desired_columns if col in out.columns]
+    out = out[available_columns]
+
+    # Debug: Log raw CGPA values before formatting
+    if "cgpa" in out.columns:
+        raw_cgpa_values = out["cgpa"].tolist()
+        print(f"Debug: Raw CGPA values in DataFrame: {raw_cgpa_values}")
+
+    # Format specific columns
     if "contacts" in out.columns:
         out["contacts"] = out["contacts"].apply(lambda v: _format_contacts(_maybe_parse_json_like(v)))
-    if "experience" in out.columns:
-        out["experience"] = out["experience"].apply(_format_experience)
-    if "confidence" in out.columns:
-        out["confidence"] = out["confidence"].apply(_format_confidence)
-    if "project_domains" in out.columns:
-        out["project_domains"] = out["project_domains"].apply(_format_domains)
-    
-    for col in out.columns:
-        if col in ("raw_text", "contacts", "experience", "confidence", "project_domains"): continue
-        if out[col].apply(lambda x: isinstance(_maybe_parse_json_like(x), (list, dict))).any():
-            out[col] = out[col].apply(_format_list)
+    if "projects" in out.columns:
+        out["projects"] = out["projects"].apply(_format_list)
+    if "skills" in out.columns:
+        out["skills"] = out["skills"].apply(_format_list)
+    if "cgpa" in out.columns:
+        out["cgpa"] = out["cgpa"].apply(_format_cgpa)
 
-    # drop raw_text from display
-    out = out.drop(columns=[c for c in out.columns if c == "raw_text"], errors="ignore")
-    
-    # also drop MongoDB-specific fields from display
-    out = out.drop(columns=[c for c in out.columns if c in ("uploaded_at", "last_updated", "_id")], errors="ignore")
-
-    # add 1-based numbering
+    # Add 1-based numbering
     out.insert(0, "No.", range(1, len(out) + 1))
     return out
 
@@ -234,10 +243,26 @@ def smart_concat(existing: pd.DataFrame, new: pd.DataFrame) -> pd.DataFrame:
     combined = combined.reset_index(drop=True)
     return combined
 
-# ------------------- MAIN LAYOUT -------------------
-col1, col2 = st.columns([2, 1])
+def export_to_excel(df):
+    """Export selected columns to an Excel file for download"""
+    export_df = pd.DataFrame()
+    if not df.empty:
+        export_df["Name"] = df.get("name", ["-"] * len(df))
+        export_df["CGPA"] = df.get("cgpa", ["-"] * len(df))
+        export_df["Skills"] = df.get("skills", ["-"] * len(df)).apply(_format_list)
+        export_df["Contacts"] = df.get("contacts", ["-"] * len(df)).apply(_format_contacts)
+        export_df["Project Domains"] = df.get("projects", ["-"] * len(df)).apply(_format_domains)
+        export_df["Project Heading"] = df.get("heading", ["-"] * len(df))
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        export_df.to_excel(writer, sheet_name="Resume Details", index=False)
+    processed_data = output.getvalue()
+    return processed_data
 
-with col1:
+# ------------------- MAIN LAYOUT -------------------
+tab1, tab2 = st.tabs(["Parsing Results", "Scoring & Analysis"])
+
+with tab1:
     st.subheader("🧾 Parsing Results")
 
     if parse_btn:
@@ -285,74 +310,123 @@ with col1:
             display_df = prettify_dataframe(st.session_state["df"])
 
             column_config = {}
-            if "experience" in display_df.columns:
-                column_config["experience"] = st.column_config.TextColumn("experience", width="large")
-            if "file" in display_df.columns:
-                column_config["file"] = st.column_config.TextColumn("file", width="medium")
-            if "project_domains" in display_df.columns:
-                column_config["project_domains"] = st.column_config.TextColumn("project_domains", width="large")
+            if "projects" in display_df.columns:
+                column_config["projects"] = st.column_config.TextColumn("projects", width="large")
+            if "skills" in display_df.columns:
+                column_config["skills"] = st.column_config.TextColumn("skills", width="large")
+            if "contacts" in display_df.columns:
+                column_config["contacts"] = st.column_config.TextColumn("contacts", width="medium")
+            if "cgpa" in display_df.columns:
+                column_config["cgpa"] = st.column_config.TextColumn("cgpa", width="small")
 
             st.dataframe(display_df, use_container_width=True, hide_index=True, column_config=column_config)
 
-with col2:
-    st.subheader("🧠 Resume Summary")
-    if not st.session_state["df"].empty:
-        # Get unique resume filenames from the DataFrame
-        resume_files = st.session_state["df"]["file"].tolist()
-        selected_file = st.selectbox("Select a Resume to Summarize", resume_files, index=0)
-        
-        # Find the row for the selected resume
-        selected_row = st.session_state["df"][st.session_state["df"]["file"] == selected_file].iloc[0]
-        st.write(f"**Selected Resume: {selected_row.get('file', '-')}")
-        
-        # Get raw_text and handle type conversion
-        raw_text = selected_row.get("raw_text", "")
-        if not isinstance(raw_text, str):
-            print(f"Debug: raw_text is {type(raw_text)} with value {raw_text} for file {selected_row.get('file', 'unknown')}")
-            raw_text = str(raw_text) if raw_text is not None else ""
-        summary = summarize(raw_text, max_sentences=3)
-        st.write(summary)
-    else:
-        st.info("Parse resumes to see summary and selection options")
+            # Export to Excel with persistent button
+            if not st.session_state["df"].empty:
+                excel_data = export_to_excel(st.session_state["df"])
+                st.download_button(
+                    label="Download Resume Details",
+                    data=excel_data,
+                    file_name="resume_details.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="download_button"
+                )
 
-# ------------------- SCORING SECTION -------------------
-st.divider()
-st.subheader("📊 Scoring & Skill Gap Analysis")
+with tab2:
+    st.subheader("📊 Scoring & Skill Gap Analysis")
 
-if score_btn:
-    if jd.strip() == "" or st.session_state["df"].empty:
+    if score_btn and jd.strip() != "" and not st.session_state["df"].empty:
+        with st.spinner("Analyzing skill gap..."):
+            scored = score_dataframe(st.session_state["df"], jd)
+            st.session_state["scored_df"] = scored.copy()
+
+            # Save scoring results to MongoDB
+            if save_to_db and db.is_connected():
+                with st.spinner("Saving scoring results..."):
+                    for _, row in scored.iterrows():
+                        db.save_scoring_result(
+                            row["file"], 
+                            jd, 
+                            {"score": row["score"], "matched": row.get("matched", []), "missing": row.get("missing", []), "project_domains": row.get("project_domains", {})}
+                        )
+                    st.success("💾 Scoring results saved to MongoDB")
+
+            # Prettify matched/missing columns
+            scored_display = st.session_state["scored_df"].copy()
+            for c in ("matched", "missing"):
+                if c in scored_display.columns:
+                    scored_display[c] = scored_display[c].apply(_format_list)
+
+            scored_display.insert(0, "No.", range(1, len(scored_display) + 1))
+
+            st.dataframe(scored_display, use_container_width=True, hide_index=True)
+
+            if not scored_display.empty:
+                srow = scored_display.iloc[0]
+                st.success(f"🏆 Top Match: {srow['file']} – Score: {srow['score']}")
+                st.write("✅ Matched Skills:", srow.get("matched", "-"))
+                st.write("❌ Missing Skills:", srow.get("missing", "-"))
+                if "project_domains" in srow:
+                    st.write("🔍 Project Domains:", srow.get("project_domains", "-"))
+    elif score_btn and (jd.strip() == "" or st.session_state["df"].empty):
         st.warning("⚠️ Please provide a Job Description and parse resumes first.")
-    else:
-        scored = score_dataframe(st.session_state["df"], jd)
 
-        # Save scoring results to MongoDB
-        if save_to_db and db.is_connected():
-            with st.spinner("Saving scoring results..."):
-                for _, row in scored.iterrows():
-                    db.save_scoring_result(
-                        row["file"], 
-                        jd, 
-                        {"score": row["score"], "matched": row.get("matched", []), "missing": row.get("missing", []), "project_domains": row.get("project_domains", {})}
-                    )
-                st.success("💾 Scoring results saved to MongoDB")
-
-        # prettify matched/missing columns
-        scored_display = scored.copy()
-        for c in ("matched", "missing"):
-            if c in scored_display.columns:
-                scored_display[c] = scored_display[c].apply(_format_list)
-
-        scored_display.insert(0, "No.", range(1, len(scored_display) + 1))
-
-        st.dataframe(scored_display, use_container_width=True, hide_index=True)
-
-        if not scored_display.empty:
-            srow = scored_display.iloc[0]
-            st.success(f"🏆 Top Match: {srow['file']} – Score: {srow['score']}")
-            st.write("✅ Matched Skills:", srow.get("matched", "-"))
-            st.write("❌ Missing Skills:", srow.get("missing", "-"))
-            if "project_domains" in srow:
-                st.write("🔍 Project Domains:", srow.get("project_domains", "-"))
+# ------------------- RESUME SUMMARY SECTION -------------------
+st.subheader("🧠 Resume Summary")
+if not st.session_state["df"].empty:
+    # Get unique resume filenames from the DataFrame
+    resume_files = st.session_state["df"]["file"].tolist()
+    selected_file = st.selectbox("Select a Resume to Summarize", resume_files, index=0)
+    
+    # Find the row for the selected resume
+    selected_row = st.session_state["df"][st.session_state["df"]["file"] == selected_file].iloc[0]
+    st.write(f"**Selected Resume: {selected_row.get('file', '-')}**")
+    
+    # Display brief summary initially
+    brief_details = []
+    if "name" in selected_row and selected_row["name"] and pd.notna(selected_row["name"]):
+        brief_details.append(f"**Name**: {selected_row['name']}")
+    if "contacts" in selected_row and selected_row["contacts"] and isinstance(selected_row["contacts"], dict) and len(selected_row["contacts"]) > 0:
+        brief_details.append(f"**Contacts**: {_format_contacts(_maybe_parse_json_like(selected_row['contacts']))}")
+    if "skills" in selected_row and selected_row["skills"] and isinstance(selected_row["skills"], list) and len(selected_row["skills"]) > 0:
+        brief_details.append(f"**Skills**: {_format_list(selected_row['skills'])}")
+    raw_text = selected_row.get("raw_text", "")
+    if not isinstance(raw_text, str):
+        print(f"Debug: raw_text is {type(raw_text)} with value {raw_text} for file {selected_row.get('file', 'unknown')}")
+        raw_text = str(raw_text) if raw_text is not None else ""
+    if raw_text.strip():
+        with st.spinner("Generating brief summary..."):
+            brief_summary = summarize(raw_text, max_sentences=1)
+        if brief_summary:
+            brief_details.append(f"**Summary**: {brief_summary.split('.')[0]}.")  # First sentence only
+    
+    # Display brief details
+    for detail in brief_details:
+        st.write(detail)
+    
+    # Toggle for full summary
+    if st.button("See More" if not st.session_state["show_full_summary"] else "See Less"):
+        st.session_state["show_full_summary"] = not st.session_state["show_full_summary"]
+        st.rerun()
+    
+    if st.session_state["show_full_summary"]:
+        full_details = brief_details.copy()
+        if "projects" in selected_row and selected_row["projects"] and isinstance(selected_row["projects"], list) and len(selected_row["projects"]) > 0:
+            full_details.append(f"**Projects**: {_format_list(selected_row['projects'])}")
+        if "heading" in selected_row and selected_row["heading"] and pd.notna(selected_row["heading"]):
+            full_details.append(f"**Heading**: {selected_row['heading']}")
+        if "cgpa" in selected_row and selected_row["cgpa"] is not None:
+            print(f"Debug: CGPA for {selected_row.get('file', 'unknown')}: {selected_row['cgpa']}")
+            full_details.append(f"**CGPA**: {_format_cgpa(selected_row['cgpa'])}")
+        if raw_text.strip():
+            with st.spinner("Generating full summary..."):
+                full_summary = summarize(raw_text, max_sentences=3)
+            if full_summary:
+                full_details.append(f"**Summary**: {full_summary}")
+        for detail in full_details:
+            st.write(detail)
+else:
+    st.info("Parse resumes to see summary and selection options")
 
 # ------------------- FOOTER -------------------
 st.divider()

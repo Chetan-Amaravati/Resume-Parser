@@ -3,7 +3,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pathlib import Path
-from parser import parse_file  # Correct single resume parsing function
+from parser import parse_file
 import scoring
 import json
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
@@ -15,10 +15,10 @@ import shutil
 import requests
 from bs4 import BeautifulSoup
 import spacy
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 # Load skills.json path relative to backend.py location
-SKILLS_JSON_PATH = Path(os.path.dirname(os.path.abspath(__file__))).parent / "skills.json"
+SKILLS_JSON_PATH = Path(os.path.dirname(os.path.abspath(__file__))) / "skills.json"
 with open(SKILLS_JSON_PATH) as f:
     SKILLS_VOCAB = json.load(f)
 
@@ -129,7 +129,7 @@ def get_latest_domain_keywords(query: str) -> List[str]:
     return save_domain_keywords(query)
 
 def tokenize_text(text: str) -> List[str]:
-    tokens = scoring.tokenize(text)  # Use scoring's tokenize
+    tokens = scoring.tokenize(text)
     tokens.extend([s for s in SKILLS_VOCAB if s in text.lower()])
     return list(set(tokens))
 
@@ -174,7 +174,7 @@ async def upload_resume(file: UploadFile = File(...), job_domain_query: str = ""
         "score": score_result.get("score"),
         "matched_keywords": score_result.get("matched"),
         "missing_keywords": score_result.get("missing"),
-        "project_domains": project_domains,  # NEW
+        "project_domains": project_domains,
     }
     inserted = resumes_col.insert_one(resume_doc)
     return {"id": str(inserted.inserted_id), "score": score_result.get("score")}
