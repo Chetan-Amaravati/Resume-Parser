@@ -14,6 +14,7 @@ from scoring import score_dataframe, summarize
 from db_handler import ResumeDB
 import io, json, ast
 from typing import Any, Dict
+from auth import show_login_register_page  # ✅ Login/Register UI
 
 # ------------------- PAGE CONFIG -------------------
 st.set_page_config(page_title="Resume Parser", layout="wide")
@@ -40,6 +41,14 @@ def init_db():
 
 db = init_db()
 
+# ------------------- LOGIN HANDLING -------------------
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+
+if not st.session_state["logged_in"]:
+    show_login_register_page(db)
+    st.stop()
+
 # ------------------- HEADER -------------------
 st.markdown("<h1 style='text-align: center;'>📄 Resume Parser with MongoDB</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; color:#6d4c41;'> Upload resumes or use the included dataset. All data saved to MongoDB.</p>", unsafe_allow_html=True)
@@ -50,6 +59,12 @@ if db.is_connected():
 else:
     st.sidebar.error("✗ MongoDB Not Connected")
     st.sidebar.warning("Run MongoDB locally with: mongod")
+
+# ✅ Logout Button
+if st.sidebar.button("🚪 Logout"):
+    st.session_state["logged_in"] = False
+    st.session_state["user"] = {}
+    st.rerun()
 
 # ------------------- PATHS -------------------
 skills_path  = Path("skills.json")
@@ -192,7 +207,6 @@ with tab1:
         display_df = prettify_dataframe(st.session_state["df"])
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-        # ---------- New Feature: Choose Details for Excel ----------
         st.markdown("### 📋 Choose details to include in Excel")
         available_columns = ["name", "contacts", "projects", "skills", "cgpa"]
         selected_columns = st.multiselect(
@@ -292,4 +306,4 @@ else:
 
 # ------------------- FOOTER -------------------
 st.divider()
-st.caption("✨ Features: MongoDB Storage • Customizable Excel Export • Skill Gap Analysis • Multi-language Support")
+st.caption("✨ Features: MongoDB Storage • Customizable Excel Export • Skill Gap Analysis • Gmail-based Registration • Secure Login System")
