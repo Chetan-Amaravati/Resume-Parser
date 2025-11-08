@@ -1,0 +1,9 @@
+John Doe
+Email john.doe@example.com
+Phone 123-456-7890
+Skills Python, Django, AWS
+Projects Built a web app using Flask
+Software Engineer Resume
+Education
+B.Tech, IIT Delhi, 2023
+CGPA 8.510
