@@ -108,6 +108,9 @@ if "scored_df" not in st.session_state:
 # ------------------- UTILITIES -------------------
 def save_uploads(files) -> Path:
     uploads_dir.mkdir(parents=True, exist_ok=True)
+    # Clear existing files in uploads_dir to ensure only current batch is parsed (fixes bug with old files showing up)
+    for existing_file in uploads_dir.glob("*"):
+        existing_file.unlink()
     for f in files:
         (uploads_dir / f.name).write_bytes(f.read())
     return uploads_dir
@@ -179,14 +182,32 @@ with tab1:
 
     if parse_btn:
         frames = []
-        if data_source == "Upload New Files" and uploaded:
-            save_uploads(uploaded)
-            frames.append(parse_if_exists(uploads_dir))
+
+        if data_source == "Upload New Files":
+            if uploaded:
+                save_uploads(uploaded)
+                new_df = parse_if_exists(uploads_dir)
+                frames.append(new_df)
+            else:
+                st.warning("Please upload at least one resume file.")
+
         elif data_source == "Use Included Dataset":
+            combined_frames = []
             if dataset_path.exists() and any(dataset_path.iterdir()):
-                frames.append(parse_if_exists(dataset_path))
+                ds_df = parse_if_exists(dataset_path)
+                if not ds_df.empty:
+                    combined_frames.append(ds_df)
             else:
                 st.warning("Dataset folder not found or empty.")
+
+            if db.is_connected():
+                db_df = db.get_resumes_dataframe()
+                if not db_df.empty:
+                    combined_frames.append(db_df)
+                else:
+                    st.info("No resumes found in MongoDB.")
+            frames = combined_frames
+
         elif data_source == "Load from MongoDB":
             if db.is_connected():
                 db_df = db.get_resumes_dataframe()
@@ -194,11 +215,24 @@ with tab1:
                     frames.append(db_df)
                 else:
                     st.warning("No resumes found in MongoDB.")
+            else:
+                st.error("MongoDB not connected.")
+
+        # Combine results for display
         if frames:
             new_df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
-            st.session_state["df"] = smart_concat(st.session_state["df"], new_df)
+            
+            # Control dataframe behavior by source
+            if data_source == "Upload New Files":
+                st.session_state["df"] = new_df
+            elif data_source == "Use Included Dataset":
+                st.session_state["df"] = smart_concat(st.session_state["df"], new_df)
+            elif data_source == "Load from MongoDB":
+                st.session_state["df"] = new_df
+
             if save_to_db and db.is_connected() and data_source != "Load from MongoDB":
                 db.save_resumes_batch(st.session_state["df"])
+
             st.success(f"Parsed {len(st.session_state['df'])} resumes.")
         else:
             st.warning("No resumes parsed yet.")
